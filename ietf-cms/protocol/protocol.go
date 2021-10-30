@@ -238,6 +238,24 @@ func (a Attribute) Value() (AnySet, error) {
 	return DecodeAnySet(a.RawValue)
 }
 
+// CMSAlgorithmProtection defines the algorithmic protection defined in
+// https://datatracker.ietf.org/doc/html/rfc6211:
+//
+// CMSAlgorithmProtection ::= SEQUENCE {
+//     digestAlgorithm         DigestAlgorithmIdentifier,
+//     signatureAlgorithm  [1] SignatureAlgorithmIdentifier OPTIONAL,
+//     macAlgorithm        [2] MessageAuthenticationCodeAlgorithm OPTIONAL
+// }
+// (WITH COMPONENTS { signatureAlgorithm PRESENT,
+//                    macAlgorithm ABSENT } |
+//  WITH COMPONENTS { signatureAlgorithm ABSENT,
+//                    macAlgorithm PRESENT })
+type CMSAlgorithmProtection struct {
+	DigestAlgorithm    pkix.AlgorithmIdentifier
+	SignatureAlgorithm pkix.AlgorithmIdentifier `asn1:"optional,tag:1"`
+	MacAlgorithm       pkix.AlgorithmIdentifier `asn1:"set,optional,tag:2"`
+}
+
 // Attributes is a common Go type for SignedAttributes and UnsignedAttributes.
 //
 // SignedAttributes ::= SET SIZE (1..MAX) OF Attribute
@@ -561,6 +579,20 @@ func (si SignerInfo) GetSigningTimeAttribute() (time.Time, error) {
 	return t, nil
 }
 
+func (si SignerInfo) GetCMSAlgorithmProtection() (CMSAlgorithmProtection, error) {
+	rv, err := si.SignedAttrs.GetOnlyAttributeValueBytes(oid.AttributeCMSAlgorithmProtection)
+	if err != nil {
+		return CMSAlgorithmProtection{}, err
+	}
+	var ap CMSAlgorithmProtection
+	if rest, err := asn1.Unmarshal(rv.FullBytes, &ap); err != nil {
+		return CMSAlgorithmProtection{}, err
+	} else if len(rest) != 0 {
+		return CMSAlgorithmProtection{}, ErrTrailingData
+	}
+	return ap, nil
+}
+
 // SignedData ::= SEQUENCE {
 //   version CMSVersion,
 //   digestAlgorithms DigestAlgorithmIdentifiers,
@@ -710,9 +742,16 @@ func (sd *SignedData) AddSignerInfo(chain []*x509.Certificate, signer crypto.Sig
 	if err != nil {
 		return err
 	}
+	apAttr, err := NewAttribute(oid.AttributeCMSAlgorithmProtection, CMSAlgorithmProtection{
+		DigestAlgorithm:    digestAlgorithmID,
+		SignatureAlgorithm: signatureAlgorithmID,
+	})
+	if err != nil {
+		return err
+	}
 
 	// sort attributes to match required order in marshaled form
-	si.SignedAttrs, err = sortAttributes(stAttr, mdAttr, ctAttr)
+	si.SignedAttrs, err = sortAttributes(stAttr, mdAttr, ctAttr, apAttr)
 	if err != nil {
 		return err
 	}

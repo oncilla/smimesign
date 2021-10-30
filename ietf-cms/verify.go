@@ -3,8 +3,10 @@ package cms
 import (
 	"bytes"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 
+	"github.com/github/smimesign/ietf-cms/oid"
 	"github.com/github/smimesign/ietf-cms/protocol"
 )
 
@@ -91,6 +93,22 @@ func (sd *SignedData) verify(econtent []byte, opts x509.VerifyOptions) ([][][]*x
 				return nil, protocol.ASN1Error{Message: "invalid SignerInfo ContentType attribute"}
 			}
 
+			if si.SignedAttrs.HasAttribute(oid.AttributeCMSAlgorithmProtection) {
+				ap, err := si.GetCMSAlgorithmProtection()
+				if err != nil {
+					return nil, err
+				}
+				if msg := cmpAlgoIdentifier(si.DigestAlgorithm, ap.DigestAlgorithm); msg != "" {
+					return nil, protocol.ASN1Error{Message: "invalid CMSAlgorithmProtection.DigestAlgorithm: " + msg}
+				}
+				if msg := cmpAlgoIdentifier(si.SignatureAlgorithm, ap.SignatureAlgorithm); msg != "" {
+					return nil, protocol.ASN1Error{Message: "invalid CMSAlgorithmProtection.SignatureAlgorithm: " + msg}
+				}
+				if len(ap.MacAlgorithm.Algorithm) != 0 {
+					return nil, protocol.ASN1Error{Message: "CMSAlgorithmProtection.MacAlgorithm set"}
+				}
+			}
+
 			// Calculate the digest over the actual message.
 			hash, err := si.Hash()
 			if err != nil {
@@ -171,4 +189,14 @@ func (sd *SignedData) verify(econtent []byte, opts x509.VerifyOptions) ([][][]*x
 
 	// OK
 	return chains, nil
+}
+
+func cmpAlgoIdentifier(a, b pkix.AlgorithmIdentifier) string {
+	if !a.Algorithm.Equal(b.Algorithm) {
+		return "algorithm mismatch"
+	}
+	if !bytes.Equal(a.Parameters.FullBytes, b.Parameters.FullBytes) {
+		return "parameters mismatch"
+	}
+	return ""
 }
