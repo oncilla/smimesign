@@ -17,8 +17,9 @@ var (
 	AttributeSigningTime    = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 5}
 	AttributeTimeStampToken = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 14}
 
-	PublicKeyAlgorithmRSA   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
-	PublicKeyAlgorithmECDSA = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
+	PublicKeyAlgorithmRSA     = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
+	PublicKeyAlgorithmECDSA   = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
+	PublicKeyAlgorithmEd25519 = asn1.ObjectIdentifier{1, 3, 101, 112}
 
 	DigestAlgorithmSHA1   = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
 	DigestAlgorithmMD5    = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 5}
@@ -40,6 +41,7 @@ var (
 	SignatureAlgorithmECDSAWithSHA384 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 3}
 	SignatureAlgorithmECDSAWithSHA512 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 4}
 	SignatureAlgorithmISOSHA1WithRSA  = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 29}
+	SignatureAlgorithmPureEd25519     = asn1.ObjectIdentifier{1, 3, 101, 112}
 
 	ExtensionSubjectKeyIdentifier = asn1.ObjectIdentifier{2, 5, 29, 14}
 )
@@ -74,10 +76,11 @@ var X509SignatureAlgorithmToDigestAlgorithm = map[x509.SignatureAlgorithm]asn1.O
 	x509.ECDSAWithSHA256: DigestAlgorithmSHA256,
 	x509.ECDSAWithSHA384: DigestAlgorithmSHA384,
 	x509.ECDSAWithSHA512: DigestAlgorithmSHA512,
+	// x509.PureEd25519 does not have a pre-hash.
 }
 
 // X509SignatureAlgorithmToPublicKeyAlgorithm maps x509.SignatureAlgorithm to
-// signatureAlgorithm OIDs.
+// publicKeyAlgorithm OIDs.
 var X509SignatureAlgorithmToPublicKeyAlgorithm = map[x509.SignatureAlgorithm]asn1.ObjectIdentifier{
 	x509.SHA1WithRSA:     PublicKeyAlgorithmRSA,
 	x509.MD5WithRSA:      PublicKeyAlgorithmRSA,
@@ -88,23 +91,27 @@ var X509SignatureAlgorithmToPublicKeyAlgorithm = map[x509.SignatureAlgorithm]asn
 	x509.ECDSAWithSHA256: PublicKeyAlgorithmECDSA,
 	x509.ECDSAWithSHA384: PublicKeyAlgorithmECDSA,
 	x509.ECDSAWithSHA512: PublicKeyAlgorithmECDSA,
+	x509.PureEd25519:     PublicKeyAlgorithmEd25519,
 }
 
 // PublicKeyAndDigestAlgorithmToX509SignatureAlgorithm maps digest and signature
 // OIDs to x509.SignatureAlgorithm values.
 var PublicKeyAndDigestAlgorithmToX509SignatureAlgorithm = map[string]map[string]x509.SignatureAlgorithm{
-	PublicKeyAlgorithmRSA.String(): map[string]x509.SignatureAlgorithm{
+	PublicKeyAlgorithmRSA.String(): {
 		DigestAlgorithmSHA1.String():   x509.SHA1WithRSA,
 		DigestAlgorithmMD5.String():    x509.MD5WithRSA,
 		DigestAlgorithmSHA256.String(): x509.SHA256WithRSA,
 		DigestAlgorithmSHA384.String(): x509.SHA384WithRSA,
 		DigestAlgorithmSHA512.String(): x509.SHA512WithRSA,
 	},
-	PublicKeyAlgorithmECDSA.String(): map[string]x509.SignatureAlgorithm{
+	PublicKeyAlgorithmECDSA.String(): {
 		DigestAlgorithmSHA1.String():   x509.ECDSAWithSHA1,
 		DigestAlgorithmSHA256.String(): x509.ECDSAWithSHA256,
 		DigestAlgorithmSHA384.String(): x509.ECDSAWithSHA384,
 		DigestAlgorithmSHA512.String(): x509.ECDSAWithSHA512,
+	},
+	PublicKeyAlgorithmEd25519.String(): {
+		DigestAlgorithmSHA512.String(): x509.PureEd25519,
 	},
 }
 
@@ -121,22 +128,26 @@ var SignatureAlgorithmToX509SignatureAlgorithm = map[string]x509.SignatureAlgori
 	SignatureAlgorithmECDSAWithSHA384.String(): x509.ECDSAWithSHA384,
 	SignatureAlgorithmECDSAWithSHA512.String(): x509.ECDSAWithSHA512,
 	SignatureAlgorithmDSAWithSHA1.String():     x509.DSAWithSHA1,
+	SignatureAlgorithmPureEd25519.String():     x509.PureEd25519,
 }
 
 // X509PublicKeyAndDigestAlgorithmToSignatureAlgorithm maps X509 public key and
 // digest algorithms to to SignatureAlgorithm OIDs.
 var X509PublicKeyAndDigestAlgorithmToSignatureAlgorithm = map[x509.PublicKeyAlgorithm]map[string]asn1.ObjectIdentifier{
-	x509.RSA: map[string]asn1.ObjectIdentifier{
+	x509.RSA: {
 		DigestAlgorithmSHA1.String():   SignatureAlgorithmSHA1WithRSA,
 		DigestAlgorithmMD5.String():    SignatureAlgorithmMD5WithRSA,
 		DigestAlgorithmSHA256.String(): SignatureAlgorithmSHA256WithRSA,
 		DigestAlgorithmSHA384.String(): SignatureAlgorithmSHA384WithRSA,
 		DigestAlgorithmSHA512.String(): SignatureAlgorithmSHA512WithRSA,
 	},
-	x509.ECDSA: map[string]asn1.ObjectIdentifier{
+	x509.ECDSA: {
 		DigestAlgorithmSHA1.String():   SignatureAlgorithmECDSAWithSHA1,
 		DigestAlgorithmSHA256.String(): SignatureAlgorithmECDSAWithSHA256,
 		DigestAlgorithmSHA384.String(): SignatureAlgorithmECDSAWithSHA384,
 		DigestAlgorithmSHA512.String(): SignatureAlgorithmECDSAWithSHA512,
+	},
+	x509.Ed25519: {
+		DigestAlgorithmSHA512.String(): SignatureAlgorithmPureEd25519,
 	},
 }

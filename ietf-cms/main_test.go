@@ -2,7 +2,9 @@ package cms
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
@@ -27,9 +29,12 @@ var (
 	intermediateKey, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	intermediate       = root.Issue(fakeca.IsCA, fakeca.PrivateKey(intermediateKey))
 
+	_, leafKey, _ = ed25519.GenerateKey(rand.Reader)
+
 	leaf = intermediate.Issue(
 		fakeca.NotBefore(time.Now().Add(-time.Hour)),
 		fakeca.NotAfter(time.Now().Add(time.Hour)),
+		fakeca.PrivateKey((crypto.Signer)(leafKey)),
 	)
 
 	rootOpts         = x509.VerifyOptions{Roots: root.ChainPool()}

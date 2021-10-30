@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	_ "crypto/sha1" // for crypto.SHA1
@@ -479,6 +480,7 @@ func (si SignerInfo) subjectKeyIdentifierSID() ([]byte, error) {
 
 // Hash gets the crypto.Hash associated with this SignerInfo's DigestAlgorithm.
 // 0 is returned for unrecognized algorithms.
+// Note that SHA512 is returned when the SignatureAlgorithm is PureEd25519.
 func (si SignerInfo) Hash() (crypto.Hash, error) {
 	algo := si.DigestAlgorithm.Algorithm.String()
 	hash := oid.DigestAlgorithmToCryptoHash[algo]
@@ -487,6 +489,24 @@ func (si SignerInfo) Hash() (crypto.Hash, error) {
 	}
 
 	return hash, nil
+}
+
+// SignatureInput calculates the signature computation input with the
+// appropriate digest algorithm. In case of PureEd25519, the input is returned
+// without modification.
+func (si SignerInfo) SignatureInput(content []byte) ([]byte, error) {
+	if si.X509SignatureAlgorithm() == x509.PureEd25519 {
+		return content, nil
+	}
+	hash, err := si.Hash()
+	if err != nil {
+		return nil, err
+	}
+	md := hash.New()
+	if _, err = md.Write(content); err != nil {
+		return nil, err
+	}
+	return md.Sum(nil), nil
 }
 
 // X509SignatureAlgorithm gets the x509.SignatureAlgorithm that should be used
@@ -659,7 +679,7 @@ func (sd *SignedData) AddSignerInfo(chain []*x509.Certificate, signer crypto.Sig
 		return err
 	}
 
-	digestAlgorithmID := digestAlgorithmForPublicKey(pub)
+	digestAlgorithmID := digestAlgorithmForPublicKey(cert.PublicKey)
 
 	signatureAlgorithmOID, ok := oid.X509PublicKeyAndDigestAlgorithmToSignatureAlgorithm[cert.PublicKeyAlgorithm][digestAlgorithmID.Algorithm.String()]
 	if !ok {
@@ -722,11 +742,18 @@ func (sd *SignedData) AddSignerInfo(chain []*x509.Certificate, signer crypto.Sig
 	if err != nil {
 		return err
 	}
-	smd := hash.New()
-	if _, errr := smd.Write(sm); errr != nil {
-		return errr
+
+	if si.X509SignatureAlgorithm() != x509.PureEd25519 {
+		smd := hash.New()
+		if _, err := smd.Write(sm); err != nil {
+			return err
+		}
+		sm = smd.Sum(nil)
+	} else {
+		hash = 0
 	}
-	if si.Signature, err = signer.Sign(rand.Reader, smd.Sum(nil), hash); err != nil {
+
+	if si.Signature, err = signer.Sign(rand.Reader, sm, hash); err != nil {
 		return err
 	}
 
@@ -753,16 +780,22 @@ func sortAttributes(attrs ...Attribute) ([]Attribute, error) {
 // algorithmsForPublicKey takes an opinionated stance on what algorithms to use
 // for the given public key.
 func digestAlgorithmForPublicKey(pub crypto.PublicKey) pkix.AlgorithmIdentifier {
-	if ecPub, ok := pub.(*ecdsa.PublicKey); ok {
-		switch ecPub.Curve {
+
+	switch k := pub.(type) {
+	case *ecdsa.PublicKey:
+		switch k.Curve {
 		case elliptic.P384():
 			return pkix.AlgorithmIdentifier{Algorithm: oid.DigestAlgorithmSHA384}
 		case elliptic.P521():
 			return pkix.AlgorithmIdentifier{Algorithm: oid.DigestAlgorithmSHA512}
+		default:
+			return pkix.AlgorithmIdentifier{Algorithm: oid.DigestAlgorithmSHA256}
 		}
+	case ed25519.PublicKey:
+		return pkix.AlgorithmIdentifier{Algorithm: oid.DigestAlgorithmSHA512}
+	default:
+		return pkix.AlgorithmIdentifier{Algorithm: oid.DigestAlgorithmSHA256}
 	}
-
-	return pkix.AlgorithmIdentifier{Algorithm: oid.DigestAlgorithmSHA256}
 }
 
 // ClearCertificates removes all certificates.
